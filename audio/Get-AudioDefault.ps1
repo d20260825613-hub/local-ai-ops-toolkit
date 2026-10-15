@@ -1,122 +1,97 @@
-﻿# Report the current default audio endpoints (render + capture) and every render
-# endpoint's state, via the Core Audio (MMDevice) COM API.
-Add-Type -Language CSharp @"
-using System;
-using System.Runtime.InteropServices;
+# Report the current default audio endpoints (render + capture) and every render
+# endpoint's state.
+#
+# Why this is not COM interop anymore
+#   The previous version hand-wrote the Core Audio (MMDevice) interfaces and a
+#   PROPVARIANT struct. The layout was wrong for x64 (24 bytes, union at offset 8)
+#   and the interface signatures did not match the real vtables, so the script died
+#   with an access violation (0xC0000005 / exit code -1073741819) on the first COM
+#   call and produced no output at all.
+#   The WinRT MediaDevice API used by audio/List-AudioEndpoints.ps1 and
+#   audio/AudioGuard.ps1 is stable on Windows PowerShell 5.1, and the endpoint id it
+#   returns is the same {0.0.0.00000000}.{guid} form that keys the MMDevices registry
+#   store, so endpoint names and states can come from the registry without any
+#   interop. This file is the read-only "second opinion" next to List-AudioEndpoints.ps1
+#   and touches no device.
+$ErrorActionPreference = 'Continue'
 
-[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDeviceEnumeratorComObject { }
-
-[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-public interface IMMDeviceEnumerator {
-    int EnumAudioEndpoints(int dataFlow, int stateMask, out IMMDeviceCollection devices);
-    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint);
-    int GetDevice(string id, out IMMDevice device);
-    int RegisterEndpointNotificationCallback(IntPtr client);
-    int UnregisterEndpointNotificationCallback(IntPtr client);
-}
-
-[Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-public interface IMMDeviceCollection {
-    int GetCount(out int count);
-    int Item(int index, out IMMDevice device);
-}
-
-[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-public interface IMMDevice {
-    int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
-    int OpenPropertyStore(int access, out IPropertyStore properties);
-    int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
-    int GetState(out int state);
-}
-
-[Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-public interface IPropertyStore {
-    int GetCount(out int count);
-    int GetAt(int index, out PROPERTYKEY key);
-    int GetValue(ref PROPERTYKEY key, out PROPVARIANT value);
-    int SetValue(ref PROPERTYKEY key, ref PROPVARIANT value);
-    int Commit();
-}
-
-[StructLayout(LayoutKind.Sequential)]
-public struct PROPERTYKEY { public Guid fmtid; public int pid; }
-
-[StructLayout(LayoutKind.Explicit)]
-public struct PROPVARIANT {
-    [FieldOffset(0)] public short vt;
-    [FieldOffset(8)] public IntPtr pointerValue;
-}
-
-public static class AudioInfo {
-    static PROPERTYKEY PKEY_Device_FriendlyName = new PROPERTYKEY {
-        fmtid = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"), pid = 14 };
-
-    static PROPERTYKEY PKEY_Device_DeviceDesc = new PROPERTYKEY {
-        fmtid = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"), pid = 2 };
-
-    static string GetString(IPropertyStore store, PROPERTYKEY key) {
-        PROPVARIANT v;
-        if (store.GetValue(ref key, out v) != 0) return "";
-        if (v.pointerValue == IntPtr.Zero) return "";
-        return Marshal.PtrToStringUni(v.pointerValue) ?? "";
+function Get-MediaDeviceId {
+  param([ValidateSet('render', 'capture')][string]$Kind, [ValidateSet('Default', 'Communications')][string]$Role = 'Default')
+  try {
+    [void][Windows.Media.Devices.MediaDevice, Windows.Media.Devices, ContentType = WindowsRuntime]
+    $roleValue = [Windows.Media.Devices.AudioDeviceRole]::Default
+    if ($Role -eq 'Communications') { $roleValue = [Windows.Media.Devices.AudioDeviceRole]::Communications }
+    if ($Kind -eq 'render') {
+      return [Windows.Media.Devices.MediaDevice]::GetDefaultAudioRenderId($roleValue)
     }
-
-    public static string Describe(IMMDevice dev) {
-        string id;
-        dev.GetId(out id);
-        int state;
-        dev.GetState(out state);
-        IPropertyStore store;
-        dev.OpenPropertyStore(0, out store);
-        string name = GetString(store, PKEY_Device_FriendlyName);
-        if (string.IsNullOrEmpty(name)) name = GetString(store, PKEY_Device_DeviceDesc);
-        return string.Format("state={0} name=\"{1}\" id={2}", StateText(state), name, id);
-    }
-
-    static string StateText(int state) {
-        switch (state) {
-            case 1: return "ACTIVE";
-            case 2: return "DISABLED";
-            case 4: return "NOTPRESENT";
-            case 8: return "UNPLUGGED";
-            default: return "?" + state;
-        }
-    }
-
-    public static string Default(int flow, int role) {
-        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
-        IMMDevice dev;
-        int hr = enumerator.GetDefaultAudioEndpoint(flow, role, out dev);
-        if (hr != 0) return "none (hr=0x" + hr.ToString("X8") + ")";
-        return Describe(dev);
-    }
-
-    public static string[] All(int flow) {
-        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
-        IMMDeviceCollection col;
-        enumerator.EnumAudioEndpoints(flow, 0xF, out col);
-        int n;
-        col.GetCount(out n);
-        var list = new string[n];
-        for (int i = 0; i < n; i++) {
-            IMMDevice d;
-            col.Item(i, out d);
-            list[i] = Describe(d);
-        }
-        return list;
-    }
+    return [Windows.Media.Devices.MediaDevice]::GetDefaultAudioCaptureId($roleValue)
+  } catch {
+    return $null
+  }
 }
-"@ -ErrorAction Stop
 
-Write-Output '=== default render (console role) ==='
-[AudioInfo]::Default(0, 0)
+function Get-EndpointGuid {
+  param([string]$DeviceId)
+  # render endpoints use {0.0.0.00000000}.{guid}, capture endpoints {0.0.1.00000000}.{guid}
+  if ($DeviceId -and $DeviceId -match '\{0\.0\.[01]\.00000000\}\.\{([0-9a-fA-F\-]+)\}') { return $Matches[1].ToLower() }
+  return $null
+}
+
+function Get-EndpointStore {
+  param([ValidateSet('Render', 'Capture')][string]$Flow = 'Render')
+  $root = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\$Flow"
+  $map = @{}
+  foreach ($k in @(Get-ChildItem $root -ErrorAction SilentlyContinue)) {
+    $guid = ([string]$k.PSChildName).Trim('{}').ToLower()
+    $state = (Get-ItemProperty -Path $k.PSPath -Name DeviceState -ErrorAction SilentlyContinue).DeviceState
+    $props = Get-ItemProperty -Path (Join-Path $k.PSPath 'Properties') -ErrorAction SilentlyContinue
+    $name = ''
+    if ($props) { $name = [string]$props.'{a45c254e-df1c-4efd-8020-67d146a850e0},14' }
+    if (-not $name -and $props) { $name = [string]$props.'{a45c254e-df1c-4efd-8020-67d146a850e0},2' }
+    $map[$guid] = [pscustomobject]@{ Guid = $guid; Name = $name; DeviceState = $state }
+  }
+  return $map
+}
+
+function Format-Endpoint {
+  param([string]$DeviceId, $Store)
+  if (-not $DeviceId) { return 'none (the WinRT MediaDevice API is unavailable)' }
+  $guid = Get-EndpointGuid -DeviceId $DeviceId
+  if (-not $guid) { return ('id={0} (unrecognised id format)' -f $DeviceId) }
+  $entry = $null
+  if ($Store -and $Store.ContainsKey($guid)) { $entry = $Store[$guid] }
+  $state = 'not in the MMDevices store'
+  $name = ''
+  if ($entry) {
+    $stateMap = @{ 1 = 'ACTIVE'; 2 = 'DISABLED'; 4 = 'NOTPRESENT'; 8 = 'UNPLUGGED' }
+    $state = 'state=' + $entry.DeviceState
+    if ($null -ne $entry.DeviceState -and $stateMap.ContainsKey([int]$entry.DeviceState)) { $state = $stateMap[[int]$entry.DeviceState] }
+    $name = $entry.Name
+  }
+  return ('state={0} name="{1}" id={2}' -f $state, $name, $DeviceId)
+}
+
+$renderStore = Get-EndpointStore -Flow 'Render'
+$captureStore = Get-EndpointStore -Flow 'Capture'
+
+# NOTE: Windows exposes only two endpoint roles through WinRT (Default and
+# Communications). The Core Audio "console" role is the same endpoint as "multimedia",
+# so the first two sections intentionally report the identical endpoint; the old COM
+# build printed them separately because it could ask for role 0 and role 1 directly.
+Write-Output '=== default render (console role = multimedia role) ==='
+Format-Endpoint -DeviceId (Get-MediaDeviceId -Kind 'render' -Role 'Default') -Store $renderStore
 Write-Output '=== default render (multimedia role) ==='
-[AudioInfo]::Default(0, 1)
+Format-Endpoint -DeviceId (Get-MediaDeviceId -Kind 'render' -Role 'Default') -Store $renderStore
 Write-Output '=== default render (communications role) ==='
-[AudioInfo]::Default(0, 2)
+Format-Endpoint -DeviceId (Get-MediaDeviceId -Kind 'render' -Role 'Communications') -Store $renderStore
 Write-Output '=== default capture (console role) ==='
-[AudioInfo]::Default(1, 0)
+Format-Endpoint -DeviceId (Get-MediaDeviceId -Kind 'capture' -Role 'Default') -Store $captureStore
+
 Write-Output '=== all render endpoints ==='
-[AudioInfo]::All(0) | ForEach-Object { $_ }
-
-
+foreach ($guid in @($renderStore.Keys | Sort-Object)) {
+  $e = $renderStore[$guid]
+  $stateMap = @{ 1 = 'ACTIVE'; 2 = 'DISABLED'; 4 = 'NOTPRESENT'; 8 = 'UNPLUGGED' }
+  $state = 'state=' + $e.DeviceState
+  if ($null -ne $e.DeviceState -and $stateMap.ContainsKey([int]$e.DeviceState)) { $state = $stateMap[[int]$e.DeviceState] }
+  Write-Output ('[{0}] {{{1}}} {2}' -f $state, $guid, $e.Name)
+}

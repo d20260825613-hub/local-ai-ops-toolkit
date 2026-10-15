@@ -44,11 +44,40 @@ if (Test-Path $py) {
   & $py -m playwright install chromium 2>&1 | ForEach-Object { L ('   ' + $_) }
 }
 
-L '5) PATH'
+L '5) PATH + mirror environment'
 $add = @('D:\Python\venv\Scripts')
 $cur = [Environment]::GetEnvironmentVariable('Path','User'); $parts = @(); if ($cur) { $parts = $cur -split ';' | Where-Object { $_ } }
-foreach ($a in $add) { if (-not ($parts -contains $a)) { $parts += $a; L ('   + ' + $a) } }
-[Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'User')
+$changed = $false
+foreach ($a in $add) { if (-not ($parts -contains $a)) { $parts += $a; $changed = $true; L ('   + ' + $a) } }
+if ($changed) { [Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'User'); L '   PATH updated' } else { L '   PATH already complete' }
+
+# README 承诺"把镜像写成用户环境变量、一次配好永久生效":$env: 赋值只影响当前进程,
+# 所以这里用 User 作用域真正持久化(与 Install-AgentTools.ps1 / 2 行为一致)。
+$MirrorEnv = [ordered]@{
+  'PIP_INDEX_URL'            = 'https://pypi.tuna.tsinghua.edu.cn/simple'
+  'PIP_TRUSTED_HOST'         = 'pypi.tuna.tsinghua.edu.cn'
+  'UV_DEFAULT_INDEX'         = 'https://pypi.tuna.tsinghua.edu.cn/simple'
+  'UV_PYTHON_INSTALL_DIR'    = 'D:\Python'
+  'UV_PYTHON_INSTALL_MIRROR' = 'https://registry.npmmirror.com/-/binary/python-build-standalone'
+  'NPM_CONFIG_REGISTRY'      = 'https://registry.npmmirror.com'
+  'HF_ENDPOINT'              = 'https://hf-mirror.com'
+  'HF_HOME'                  = 'D:\hf-cache'
+  'PLAYWRIGHT_DOWNLOAD_HOST' = 'https://cdn.npmmirror.com/binaries/playwright'
+  'PLAYWRIGHT_BROWSERS_PATH' = 'D:\tools\ms-playwright'
+}
+$envChanged = @()
+foreach ($name in $MirrorEnv.Keys) {
+  $want = [string]$MirrorEnv[$name]
+  if ([Environment]::GetEnvironmentVariable($name, 'User') -ne $want) {
+    try { [Environment]::SetEnvironmentVariable($name, $want, 'User'); $envChanged += $name; L ('   env + ' + $name + ' = ' + $want) }
+    catch { L ('   env FAILED ' + $name + ': ' + $_.Exception.Message) }
+  }
+}
+if ($envChanged.Count -eq 0) { L '   mirror environment already complete' } else { L '   mirror environment updated (new processes only)' }
+try {
+  @{ updated = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); names = @($MirrorEnv.Keys); values = $MirrorEnv } |
+    ConvertTo-Json -Depth 4 | Set-Content -LiteralPath 'D:\tools\mirror-env.json' -Encoding UTF8
+} catch { }
 
 L '6) verify'
 if (Test-Path $py) {

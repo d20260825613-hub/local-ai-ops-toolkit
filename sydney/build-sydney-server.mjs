@@ -1,5 +1,7 @@
 // Build the Sydney server assets (persona embedded directly in a wrapped chat template).
+// Usage: node build-sydney-server.mjs        (writes into the directory given by DIR below)
 import fs from 'node:fs';
+import path from 'node:path';
 
 const DIR = 'D:\\ai\\sydney';
 const MODEL = 'D:\\models\\sydney\\Qwen3.5-Sydney-9B-Q4_K_M.gguf';
@@ -7,10 +9,28 @@ const PORT = 8081;
 const CTX = 4096;
 const NGL = process.env.NGL || '20';
 
-const persona = fs.readFileSync(`${DIR}\\sydney_system.txt`, 'utf8').trim();
+if (!fs.existsSync(DIR)) {
+  console.error(`output directory does not exist: ${DIR}`);
+  console.error('  create it first (the repository copy of sydney/ can be deployed there).');
+  process.exit(2);
+}
+const personaPath = path.join(DIR, 'sydney_system.txt');
+if (!fs.existsSync(personaPath)) {
+  console.error(`persona file not found: ${personaPath}`);
+  console.error('  put the model author\'s persona prompt there first:');
+  console.error('  https://huggingface.co/Atonelia/Qwen3.5-Sydney-9B-GGUF (sydney_system.txt, Apache-2.0)');
+  console.error('  the repository copy is sydney/sydney_system.txt - copy it to ' + DIR + ' and retry.');
+  process.exit(2);
+}
+
+const persona = fs.readFileSync(personaPath, 'utf8').trim();
+if (persona === '') {
+  console.error(`persona file is empty: ${personaPath}`);
+  process.exit(2);
+}
 
 let body;
-const localBody = `${DIR}\\qwen35_template_body.jinja`;
+const localBody = path.join(DIR, 'qwen35_template_body.jinja');
 if (fs.existsSync(localBody)) {
   body = fs.readFileSync(localBody, 'utf8');
 } else {

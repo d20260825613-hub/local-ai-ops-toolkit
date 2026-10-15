@@ -39,6 +39,8 @@ Windows 声音问题诊断与修复说明
 
 三、这一步会做什么（全部可还原）
 --------------------------------
+0. 先把这个文件里"原始值"记到 D:\ai\audio\audio-backup.json
+   （快速启动原值、Nahimic 的启动类型与当时是否在跑、每个要改的端点改前的独占模式值）
 1. 关闭快速启动
 2. 让 Windows Audio / Windows Audio Endpoint Builder 服务崩溃后自动重启
    （sc failure，5 秒后重启，最多 3 次）
@@ -53,18 +55,23 @@ Windows 声音问题诊断与修复说明
 四、还原
 --------
 桌面：**还原声音设置**（同样点一次"是"）
-会把上面 1-5 全部恢复、删掉守护任务、重启音频服务。
+按 audio-backup.json 把上面 0-5 恢复、删掉守护任务、重启音频服务。
+注意：如果 audio-backup.json 不在了，"还原"**不会猜**——Nahimic 的启动类型和快速启动
+会保持原样不动（以前它无条件写成 Automatic / 1，会把本来是 Disabled 的服务变成开机自启），
+只提示"原始值未知"。所以别删 audio-backup.json。
 
 五、文件清单（都在 D:\ai\audio）
 --------------------------------
 修复声音.cmd / 修复声音(双击我).lnk      一键修复入口
 Fix-Audio-AllInOne.ps1                  提权 + 执行修复 + 安装守护
-Repair-WindowsAudio.ps1                 具体修复项
-Revert-Audio.ps1 / 还原声音设置.lnk      还原
+Repair-WindowsAudio.ps1                 具体修复项（动手前先写 audio-backup.json）
+lib\AudioBackup.ps1                     备份读写 + 日志编码修复（被上面两个脚本共用）
+Revert-Audio.ps1 / 还原声音设置.lnk      还原（读 audio-backup.json）
 AudioGuard.ps1                          声音守护
 List-AudioEndpoints.ps1                 查看所有输出设备与默认设备
-Get-AudioDefault.ps1 Core Audio(COM) 版默认设备读取（备用）
-repair-log.txt                          修复日志
+Get-AudioDefault.ps1 默认设备读取（WinRT + MMDevices 注册表，只读，备用）
+audio-backup.json                       修复前的原始值（还原要用，别删）
+repair-log.txt                          修复日志（只用 UTF-8 追加写，不会再出现 NUL 字节）
 guard.log / guard-state.json            守护日志与状态
 
 六、另外两个建议

@@ -46,11 +46,12 @@ sydney/                     新必应（Sydney）复刻模型的一键部署
 
 audio/                      Windows 音频故障修复与守护
   Repair-WindowsAudio.ps1     五项修复：快速启动、服务恢复、设备省电、独占模式、Nahimic
+  lib/AudioBackup.ps1         修复前记录原始值 / 日志编码修复（被下面两个脚本共用）
   AudioGuard.ps1              45 秒轮询：服务挂了 / 默认端点死了就自动重启音频栈（1 小时限 3 次）
   List-AudioEndpoints.ps1     列出所有输出端点、状态与关键属性（无需管理员）
-  Get-AudioDefault.ps1        Core Audio (COM) 版默认设备读取
+  Get-AudioDefault.ps1        默认设备读取（WinRT + MMDevices 注册表，只读）
   Fix-Audio-AllInOne.ps1      自提权一键修复 + 安装守护
-  Revert-Audio.ps1            全部还原
+  Revert-Audio.ps1            按 audio-backup.json 还原（没有备份时不猜原值）
   声音问题修复说明.txt           诊断过程、结论与手动补项
 
 tools/                      国内网络下的工具链安装器
@@ -59,11 +60,19 @@ tools/                      国内网络下的工具链安装器
   Install-AgentTools3.ps1     venv + 14 个常用 Python 库 + Playwright Chromium
   shot.py                     Playwright 截图小工具（用来验证网页界面）
   Build-Repos.ps1             把散落各处的自写脚本整理成 git 仓库
+  lib/LaotLib.psm1            守护脚本与自检共用的纯函数（配置校验、端口过滤、门槛）
+  portfilter.ps1              按端口挑选 llama-server（AI-Stop.cmd 用，默认只报告不停）
+  selftest.ps1                轻量自检（无需管理员、不碰任何服务，见第五节）
 
 dsh/                         DeepSeek Harness 的无人值守启动
   start-dsh.cmd               启动前先探测 3080 端口，避免起第二个实例；输出写入日志
   start-dsh-hidden.vbs        无窗口包装，供注册表 Run 键调用
 ```
+
+> **脚本的路径约定**：`.cmd` 启动器一律先找自己所在目录（`%~dp0`），找不到才回退
+> `D:\ai\`。`LocalAI-Watchdog.ps1` 同理：配置和数据目录 = 脚本旁边的 `config.json`
+> 所在目录，没有就回退 `D:\ai`。所以把仓库整个拷到 `D:\ai` 就是原来的部署方式，
+> 直接从仓库目录运行也能工作（日志、state.json 落在仓库目录下）。
 
 ---
 
@@ -94,9 +103,31 @@ dsh/                         DeepSeek Harness 的无人值守启动
 
 ### 3. 两个模型服务不可能同时占显存
 守护脚本用三层策略保证不互相挤爆：
-- **显存门槛**：启动前查 `nvidia-memory.free`，不足 3000 MiB 就推迟（不硬上、不炸显存）
+- **显存门槛**：启动前查 `nvidia-memory.free`，不足 3000 MiB 就推迟（不硬上、不炸显存）；
+  如果 `nvidia-smi` 取不到（没装驱动 / PATH 变了 / CUDA 更新中），日志会写一条
+  `VRAM check unavailable (...), starting anyway` 的 WARN——门槛失效这件事不会静默发生。
 - **闲置休眠**：`--sleep-idle-seconds`，没人用就释放显存
-- **游戏让路**：非 AI 游戏前台 → 停掉全部模型服务；AI 游戏（其 Mod 依赖模型）前台 → 只停另一个
+- **游戏让路**：三条规则，各自只看**自己那个端口**的进程：
+  1. 非 AI 游戏在跑 → 停掉主模型服务（8080），Sydney 按自己的规则处理
+  2. AI 游戏（其 Mod 依赖 8080 的模型）**在前台** → 只停 Sydney（8081），主模型不动
+  3. AI 游戏只在后台跑 → 不停 Sydney
+  停止/降优先级一律按端口匹配命令行，所以不会误杀另一个服务，也不会误杀你手动起的别的
+  llama-server（`Stop-Sydney.ps1 -Port` 同理）。
+
+  两个服务各有独立冷却：`aiStartCooldownSeconds`（默认 90 秒）和
+  `sydneyStartCooldownSeconds`（默认 30 秒），所以主模型启动后的第一轮 Sydney 也能起来。
+
+### 3.1 配置必须"能用"才启动
+`config.json` 只要求是合法 JSON 是不够的：空文件、`{}`、`null`、`true`、数字、
+字符串都能被 `ConvertFrom-Json` 接受，然后让脚本用一条**空参数**命令行去启动
+llama-server 并汇报 AI-ON（假成功）。现在缺少 `llamaServer`/`model`/`host`/`port`
+任一必填项、`port` 不是 1–65535、`pollSeconds`/`logKeepDays` 不是正整数、
+可执行文件或模型文件不存在、`sydney.port` 与主端口撞车、JSON 里写了注释（`//`）……
+都会打印 `config invalid: ...` 并以退出码 1 结束，**什么都不启动**。
+
+配置里的中文关键词按"有 BOM 看 BOM，否则先试 UTF-8、失败再按系统 ANSI 代码页（中文
+机器即 GBK）"来读，所以用记事本存成 ANSI 的 `config.json` 也不会让关键词变成乱码
+（乱码曾经导致"AI 游戏反而被停模型"）。
 
 ### 4. 国内网络：镜像不是可选项，是唯一通路
 实测可用的通道与不可用的：
@@ -116,12 +147,24 @@ dsh/                         DeepSeek Harness 的无人值守启动
 | `huggingface.co` | 连接失败 |
 | `copilot.microsoft.com` / `sydney.bing.com` | TLS 握手直接失败（所以"真·新必应"装不进来，只能复刻） |
 
-`tools/Install-AgentTools*.ps1` 把上述镜像写成**用户环境变量**（`PIP_INDEX_URL`、`UV_DEFAULT_INDEX`、
-`NPM_CONFIG_REGISTRY`、`HF_ENDPOINT`、`PLAYWRIGHT_DOWNLOAD_HOST`、`HF_HOME=D:\hf-cache` ……），
-一次配好，之后所有工具自动走镜像，并且缓存全部落在 D 盘。
+`tools/Install-AgentTools*.ps1` 把上述镜像写成**用户环境变量**（`PIP_INDEX_URL`、
+`UV_DEFAULT_INDEX`、`NPM_CONFIG_REGISTRY`、`HF_ENDPOINT`、`PLAYWRIGHT_DOWNLOAD_HOST`、
+`HF_HOME=D:\hf-cache` ……），一次配好，之后所有工具自动走镜像，并且缓存全部落在 D 盘。
+写入用的是 `[Environment]::SetEnvironmentVariable(名字, 值, 'User')`（用户级、不需要
+管理员），**只对之后新开的进程生效**，当前窗口不受影响；实际写了哪些变量会记在
+`D:\tools\mirror-env.json`，想撤销就照里面的 `names` 逐个清空：
+
+```powershell
+(Get-Content D:\tools\mirror-env.json | ConvertFrom-Json).names |
+  ForEach-Object { [Environment]::SetEnvironmentVariable($_, $null, 'User') }
+```
 
 ### 5. 一切可回滚
-- 系统级改动（快速启动、服务恢复、Nahimic、设备省电）→ `audio/Revert-Audio.ps1`
+- 系统级改动（快速启动、服务恢复、Nahimic、设备省电、独占模式）→ `audio/Revert-Audio.ps1`。
+  修复脚本动手**之前**会把原值写进 `audio/audio-backup.json`（快速启动原值、Nahimic 的
+  StartType/是否在跑、每个被改端点改前的独占模式值），还原脚本按这份备份回写。
+  备份文件丢失时它**不猜**：只提示"原始值未知"，只做不需要猜的那几项，避免把本来是
+  Disabled 的 Nahimic 变成开机自启、或者把本来就关着的快速启动打开。
 - 游戏微调 → `Revert-GameTweaks.ps1`
 - 第三方客户端配置改动 → 改动前先备份到 `D:\ai\backup\`
 - 需要管理员权限的操作集中在一个脚本里，一次 UAC 完成，不需要用户手工敲命令
@@ -131,6 +174,20 @@ dsh/                         DeepSeek Harness 的无人值守启动
 因此本仓库的策略是：**能不提权就不提权**（便携版 Python、便携 Git、全部装 D 盘、注册表 Run 键自启），
 确实需要提权的（音频修复、Windows 音频服务）做成"双击一次 → 点'是'"的一键脚本。
 
+### 7. 手动控制脚本的边界
+- `AI-Stop.cmd` **只停主模型端口**（默认 8080，或 config.json 里写的值）。它是历史上
+  `taskkill /IM llama-server.exe` 的替代品，后者会连 Sydney 和任何手动起的 llama-server
+  一起杀掉。Sydney 用 `sydney\Stop-Sydney.cmd`（`Stop-Sydney.ps1 -Port`）单独停。
+- `AI-Start.cmd` 在 watchdog 以非 0 退出时不再打印 "Done"，而是打印失败提示并给出日志位置。
+- 所有 `.cmd` 都先按自己所在目录找目标脚本（`%~dp0`），找不到才回退 `D:\ai`；
+  目标不存在时打印部署提示并返回退出码 2，不会"跑了个寂寞还报成功"。
+
+### 8. 时间相关的三个配置
+- `pollSeconds`：一轮决策的间隔（正整数，写 0 会被拒绝，避免变成死循环打满 CPU）。
+- `aiStartCooldownSeconds`：主模型**启动失败**后的冷却，防止反复拉起。
+- `sydneyStartCooldownSeconds`：Sydney 自己的冷却，不写就沿用 `aiStartCooldownSeconds`。
+  两个服务冷却独立，所以主模型起来之后 Sydney 也能在同一轮/下一轮起来。
+
 ---
 
 ## 四、快速使用
@@ -139,6 +196,7 @@ dsh/                         DeepSeek Harness 的无人值守启动
 # 1) 本地 AI 守护（需要一份 config.json，可复制 config.sample.json 后按机器修改）
 powershell -ExecutionPolicy Bypass -File .\Install-Startup.ps1     # 注册开机自启
 .\AI-Start.cmd                                                       # 手动启动一次
+.\AI-Stop.cmd                                                        # 只停主模型（8080），不动 Sydney
 .\AI-Status.cmd                                                      # 看状态
 
 # 2) 新必应（Sydney）复刻
@@ -146,16 +204,43 @@ node .\sydney\download-model.mjs        # 下载 GGUF（并行 + 校验）
 node .\sydney\build-sydney-server.mjs   # 生成人格模板与启动脚本
 node .\sydney\add-chatbox-provider.mjs  # 接入 Chatbox（需先关闭 Chatbox）
 .\sydney\Start-Sydney.cmd               # 起服务（默认 127.0.0.1:8081）
+.\sydney\Stop-Sydney.cmd                # 只停 Sydney（8081）
 
 # 3) 音频修复（会弹一次 UAC）
 .\audio\修复声音.cmd          # 或 audio\Fix-Audio-AllInOne.ps1
-.\audio\Revert-Audio.cmd      # 还原
+.\audio\Revert-Audio.cmd      # 按 audio\audio-backup.json 还原
 
 # 4) 国内网络工具链
 powershell -ExecutionPolicy Bypass -File .\tools\Install-AgentTools.ps1
 powershell -ExecutionPolicy Bypass -File .\tools\Install-AgentTools2.ps1
 powershell -ExecutionPolicy Bypass -File .\tools\Install-AgentTools3.ps1
 ```
+
+### 四之二、自检（不需要管理员，不会动任何服务）
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\selftest.ps1
+# 只看某一节也可以：脚本会打印每一条 PASS/FAIL，全过退出码 0，有失败退出码 1
+```
+
+`tools/selftest.ps1` 覆盖（全部在 `%TEMP%\laot-selftest-*` 里跑，结束即删）：
+
+1. **畸形 `config.json` 必须被拒绝**：0 字节、只有空白、`{}`、`null`、`true`、`0`/`123`、
+   `"text"`、`[]`、不是 JSON、尾逗号、带 `//` 注释，以及 `port="abc"`/`0`/`99999`、
+   `pollSeconds=0`、`logKeepDays="abc"`、`llamaServer` 指向不存在的文件……每一条都断言
+   **退出码 1 且日志里没有 "start model service"**；同时断言一份完整配置仍然会被接受。
+2. **配置编码**：中文关键词在 UTF-8（有/无 BOM）和 GBK/ANSI 三种文件里都能正确读出来。
+3. **端口过滤**：给纯函数喂假的进程表（8080、8081、9000、缺命令行、`--port 80801`、
+   `--port=8080`），断言"停主模型"只选中 8080、"停 Sydney"只选中 8081，且 `--port 80801`
+   不会被 `8080` 命中。
+4. **门槛语义**：`nvidia-smi` 探测失败（-1）与"显存不足"是两种结果；Sydney 冷却缺省回退到
+   `aiStartCooldownSeconds`。
+5. **参数解析边界**：`-Once`/`-DryRun`/`-Force` 组合、未知参数被拒、`-WhatIf` 不存在、
+   配置里相对路径按配置文件所在目录解析。
+6. **音频脚本**：`Get-AudioDefault.ps1` 里不再有手写 `StructLayout`/`PtrToStringUni`/
+   `IMMDevice` 互操作，并且实际运行退出码不是 `0xC0000005`；日志编码修复函数能把
+   "UTF-8 + UTF-16LE 混写"的日志修回可读 UTF-8；`audio-backup.json` 能往返读写，
+   未知的 StartType 不会被猜成 `Automatic`。
 
 ---
 
@@ -187,3 +272,11 @@ powershell -ExecutionPolicy Bypass -File .\tools\Install-AgentTools3.ps1
 - 4 GB 显存跑 9B 模型只能部分卸载，速度上限就在 7 tok/s 左右；想更快需要换更小的模型或量化。
 - 音频修复里的"独占模式"开关写在受保护的注册表项里，脚本无法修改，需要从系统"声音"设置界面手动取消。
 - 守护脚本按进程名/路径关键词识别游戏，冷门游戏需要往 `config.json` 里补关键词。
+- `audio/Get-AudioDefault.ps1` 现在走 WinRT `MediaDevice` + MMDevices 注册表（只读）。
+  代价：WinRT 只暴露"默认"和"通信"两种角色，所以它报告的 console / multimedia 两行
+  是同一个端点（Core Audio 里这两个角色本来就指向同一个设备）。
+- `audio/Repair-WindowsAudio.ps1` 的备份只对"这次实际改过的东西"负责；如果你在修复之后
+  手动又改过独占模式或 Nahimic，还原时以 `audio-backup.json` 里的老值为准，手动改动会丢。
+- 所有 `.ps1` 都必须能被 **Windows PowerShell 5.1** 直接跑（不用 `??`、三元、`-Parallel`
+  等 7.x 语法）；含非 ASCII 字符的 `.ps1` 一律保存为 **UTF-8 with BOM**，否则 5.1 会按
+  ANSI 解读导致中文乱码甚至语法错误。

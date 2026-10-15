@@ -1,6 +1,17 @@
 ﻿# Fix the common Windows causes of "sound randomly stops working" on this laptop.
-# Every change is reversible; see 还原说明.txt in the same folder.
+# Every change is reversible; see "声音问题修复说明.txt" in the same folder.
+# This file is intentionally written with a UTF-8 BOM: Windows PowerShell 5.1 reads a
+# .ps1 without a BOM as ANSI, and that file name is not ASCII.
+# Original values are recorded in audio-backup.json so Revert-Audio.ps1 restores them
+# instead of guessing factory defaults.
 $ErrorActionPreference = 'Continue'
+
+# The original values of everything this script changes are recorded in
+# audio\audio-backup.json before the first change, so Revert-Audio.ps1 restores the
+# real previous state instead of guessing "factory defaults".
+. (Join-Path $PSScriptRoot 'lib\AudioBackup.ps1')
+$backupPath = Get-AudioBackupPath -Dir $PSScriptRoot
+
 Write-Output '=== context ==='
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
 $pr = New-Object Security.Principal.WindowsPrincipal($id)
@@ -8,8 +19,53 @@ $elevated = $pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 Write-Output ("user      : {0}" -f $id.Name)
 Write-Output ("elevated  : {0}" -f $elevated)
 
+# --------------------------------------------------- 0. record the original values
+$pwrPath   = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power'
+$EXCL_ALLOW = '{b3f8fa53-0004-438e-9003-51a46e139bfc},3'
+$EXCL_PRIO  = '{b3f8fa53-0004-438e-9003-51a46e139bfc},4'
+
+$defaultGuid = $null
+try {
+  [void][Windows.Media.Devices.MediaDevice, Windows.Media.Devices, ContentType = WindowsRuntime]
+  $defaultRenderId = [Windows.Media.Devices.MediaDevice]::GetDefaultAudioRenderId([Windows.Media.Devices.AudioDeviceRole]::Default)
+  if ($defaultRenderId -match '\{0\.0\.[01]\.00000000\}\.\{([0-9a-fA-F\-]+)\}') { $defaultGuid = $Matches[1].ToLower() }
+} catch { }
+
+$snapshot = [ordered]@{
+  hostName          = $env:COMPUTERNAME
+  hiberbootEnabled  = (Get-ItemProperty $pwrPath -Name HiberbootEnabled -ErrorAction SilentlyContinue).HiberbootEnabled
+  nahimicStartType  = Get-AudioServiceStartType -Name 'NahimicService'
+  nahimicStatus     = $null
+  defaultRenderGuid = $defaultGuid
+  exclusiveMode     = @()
+}
+$svcSnap = Get-Service NahimicService -ErrorAction SilentlyContinue
+if ($svcSnap) { $snapshot.nahimicStatus = [string]$svcSnap.Status }
+
+# record both exclusive-mode properties on every endpoint we are about to touch
+$exclTargets = @()
+if ($defaultGuid) { $exclTargets += $defaultGuid }
+$exclTargets += '61c2c278-1b0e-40e9-8aaf-5c9184528ad8'
+$exclTargets = @($exclTargets | Select-Object -Unique)
+foreach ($g in $exclTargets) {
+  $key = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render\{$g}\Properties"
+  $entry = [ordered]@{ guid = $g; keyExists = [bool](Test-Path $key); values = [ordered]@{} }
+  if ($entry.keyExists) {
+    foreach ($name in $EXCL_ALLOW, $EXCL_PRIO) {
+      $entry.values[$name] = (Get-ItemProperty -Path $key -Name $name -ErrorAction SilentlyContinue).$name
+    }
+  }
+  $snapshot.exclusiveMode += $entry
+}
+
+if (New-AudioBackupIfMissing -Data $snapshot -Path $backupPath) {
+  Write-Output ("0) original values recorded: {0}" -f $backupPath)
+} else {
+  Write-Output ("0) original values already recorded, kept as they were: {0}" -f $backupPath)
+}
+
 # ---------------------------------------------------------------- 1. fast startup
-$pwr = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power'
+$pwr = $pwrPath
 $before = (Get-ItemProperty $pwr -Name HiberbootEnabled -ErrorAction SilentlyContinue).HiberbootEnabled
 Write-Output ''
 Write-Output ("1) fast startup (HiberbootEnabled) before = {0}" -f $before)
@@ -80,33 +136,20 @@ try {
 # --------------------------------- 4. exclusive mode off on the default endpoint
 Write-Output ''
 Write-Output '4) exclusive mode on the default output device'
-$defaultId = $null
-try {
-  [void][Windows.Media.Devices.MediaDevice, Windows.Media.Devices, ContentType = WindowsRuntime]
-  $defaultId = [Windows.Media.Devices.MediaDevice]::GetDefaultAudioRenderId([Windows.Media.Devices.AudioDeviceRole]::Default)
-} catch { }
-$guid = $null
-if ($defaultId -match '\{0\.0\.0\.00000000\}\.\{([0-9a-f\-]+)\}') { $guid = $Matches[1] }
+$guid = $defaultGuid
 Write-Output ("   default endpoint guid : {0}" -f $guid)
+if (-not $guid) { Write-Output '   WARNING: the default endpoint could not be determined; only the known Realtek endpoint is touched' }
 
-$EXCL_ALLOW = '{b3f8fa53-0004-438e-9003-51a46e139bfc},3'
-$EXCL_PRIO  = '{b3f8fa53-0004-438e-9003-51a46e139bfc},4'
-$ALLOWLIST  = @()
-if ($guid) { $ALLOWLIST += $guid }
-# also the Realtek speakers endpoint seen earlier, in case the default moved
-$ALLOWLIST += '61c2c278-1b0e-40e9-8aaf-5c9184528ad8'
-$ALLOWLIST = $ALLOWLIST | Select-Object -Unique
-
-foreach ($g in $ALLOWLIST) {
+foreach ($g in $exclTargets) {
   $key = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render\{$g}\Properties"
   if (-not (Test-Path $key)) { Write-Output ("   {0}: no property store" -f $g); continue }
   foreach ($name in $EXCL_ALLOW, $EXCL_PRIO) {
     $old = (Get-ItemProperty -Path $key -Name $name -ErrorAction SilentlyContinue).$name
     try {
       Set-ItemProperty -Path $key -Name $name -Value 0 -Type DWord -ErrorAction Stop
-      Write-Output ("   {0} {1}: {2} -> 0" -f $g.Substring(0, 8), $name.Split(',')[1], $old)
+      Write-Output ("   {0} {1}: {2} -> 0 (original kept in audio-backup.json)" -f $g, $name.Split(',')[1], $old)
     } catch {
-      Write-Output ("   {0} {1}: FAILED {2}" -f $g.Substring(0, 8), $name.Split(',')[1], $_.Exception.Message)
+      Write-Output ("   {0} {1}: FAILED {2}" -f $g, $name.Split(',')[1], $_.Exception.Message)
     }
   }
 }

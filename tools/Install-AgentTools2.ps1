@@ -83,14 +83,42 @@ if ($py) {
   & $py -m playwright install chromium 2>&1 | ForEach-Object { L ("   " + $_) }
 }
 
-# ---------------------------------------------------------------- 6) PATH + manifest
-L '6) user PATH'
+# ---------------------------------------------------------------- 6) PATH + mirror env
+L '6) user PATH + mirror environment'
 $add = @('D:\tools\bin', 'D:\tools\ffmpeg\bin', 'D:\tools\pandoc', 'D:\Git\cmd', 'D:\Python')
 $cur = [Environment]::GetEnvironmentVariable('Path', 'User')
 $parts = @(); if ($cur) { $parts = $cur -split ';' | Where-Object { $_ } }
 $changed = $false
 foreach ($a in $add) { if (-not ($parts -contains $a)) { $parts += $a; $changed = $true; L ('   + ' + $a) } }
 if ($changed) { [Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'User'); L '   PATH updated' } else { L '   PATH already complete' }
+
+# README 承诺"把镜像写成用户环境变量、一次配好永久生效":$env: 赋值只影响当前进程,
+# 脚本退出就没了,所以这里用 User 作用域真正持久化(不需要管理员,只写有变化的项)。
+$MirrorEnv = [ordered]@{
+  'PIP_INDEX_URL'            = 'https://pypi.tuna.tsinghua.edu.cn/simple'
+  'PIP_TRUSTED_HOST'         = 'pypi.tuna.tsinghua.edu.cn'
+  'UV_DEFAULT_INDEX'         = 'https://pypi.tuna.tsinghua.edu.cn/simple'
+  'UV_PYTHON_INSTALL_DIR'    = 'D:\Python'
+  'UV_PYTHON_INSTALL_MIRROR' = 'https://registry.npmmirror.com/-/binary/python-build-standalone'
+  'NPM_CONFIG_REGISTRY'      = 'https://registry.npmmirror.com'
+  'HF_ENDPOINT'              = 'https://hf-mirror.com'
+  'HF_HOME'                  = 'D:\hf-cache'
+  'PLAYWRIGHT_DOWNLOAD_HOST' = 'https://cdn.npmmirror.com/binaries/playwright'
+  'PLAYWRIGHT_BROWSERS_PATH' = 'D:\tools\ms-playwright'
+}
+$envChanged = @()
+foreach ($name in $MirrorEnv.Keys) {
+  $want = [string]$MirrorEnv[$name]
+  if ([Environment]::GetEnvironmentVariable($name, 'User') -ne $want) {
+    try { [Environment]::SetEnvironmentVariable($name, $want, 'User'); $envChanged += $name; L ('   env + ' + $name + ' = ' + $want) }
+    catch { L ('   env FAILED ' + $name + ': ' + $_.Exception.Message) }
+  }
+}
+if ($envChanged.Count -eq 0) { L '   mirror environment already complete' } else { L '   mirror environment updated (new processes only)' }
+try {
+  @{ updated = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); names = @($MirrorEnv.Keys); values = $MirrorEnv } |
+    ConvertTo-Json -Depth 4 | Set-Content -LiteralPath 'D:\tools\mirror-env.json' -Encoding UTF8
+} catch { }
 
 L '7) versions'
 $m = @()

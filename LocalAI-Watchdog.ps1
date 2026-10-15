@@ -19,6 +19,9 @@
     -Once     run one cycle and exit
     -DryRun   decide and log, but change nothing
     -Force    keep the AI running even when a game is detected
+
+  Self-test (no services started, no files changed):
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\selftest.ps1
 #>
 [CmdletBinding()]
 param(
@@ -27,7 +30,12 @@ param(
   [switch]$Force
 )
 
-$Root      = 'D:\ai'
+# --- layout ----------------------------------------------------------------------
+# Deployed layout: the script sits next to config.json in D:\ai, and so does the lib.
+# Repository layout: config.json is not here, so fall back to D:\ai (see README).
+$Root = $PSScriptRoot
+if (-not $Root) { $Root = Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not (Test-Path -LiteralPath (Join-Path $Root 'config.json'))) { $Root = 'D:\ai' }
 $CfgPath   = Join-Path $Root 'config.json'
 $StatePath = Join-Path $Root 'state.json'
 $LogDir    = Join-Path $Root 'logs'
@@ -41,13 +49,54 @@ function Write-Log {
   Write-Host $line
 }
 
+# --- shared helpers --------------------------------------------------------------
+# tools\lib\LaotLib.psm1 holds the config rules and the port/cooldown logic, so
+# tools\selftest.ps1 can exercise exactly the same code without starting anything.
+$LibPath = Join-Path $PSScriptRoot 'tools\lib\LaotLib.psm1'
+if (Test-Path -LiteralPath $LibPath) {
+  Import-Module -Name $LibPath -Force -ErrorAction Stop
+} else {
+  Import-Module -Name (Join-Path 'D:\ai\tools\lib' 'LaotLib.psm1') -Force -ErrorAction Stop
+}
+
+# --- config ----------------------------------------------------------------------
 if (-not (Test-Path -LiteralPath $CfgPath)) { Write-Log "config not found: $CfgPath" 'ERROR'; exit 1 }
+
+$cfgRaw = Read-LaotConfigText -Path $CfgPath
+if (Test-LaotJsonComment -Text $cfgRaw.Text) {
+  Write-Log 'config parse failed: JSON comments (// or /* */) are not allowed; use config.sample.json as the template' 'ERROR'
+  exit 1
+}
 try {
-  $cfg = Get-Content -LiteralPath $CfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  $cfg = $cfgRaw.Text | ConvertFrom-Json
 } catch {
   Write-Log "config parse failed: $($_.Exception.Message)" 'ERROR'
   exit 1
 }
+
+# "Valid JSON" is not "usable config": ConvertFrom-Json happily returns $null for an
+# empty file, a scalar for 'null'/'true'/'123', and an empty object for '{}'. Reading a
+# missing property then yields $null without any error, so without these checks the
+# watchdog would "successfully" start llama-server with an empty argument list and
+# report AI-ON. Everything required is validated before anything is started.
+$cfgProblems = @(Test-LaotConfig -Config $cfg -BaseDir $Root -CheckFiles)
+if ($cfgProblems.Count -gt 0) {
+  foreach ($p in $cfgProblems) { Write-Log ('config invalid: ' + $p) 'ERROR' }
+  Write-Log 'config rejected: nothing was started. Fix config.json (see config.sample.json) and retry.' 'ERROR'
+  exit 1
+}
+
+# relative paths in the config are resolved against the config's own folder
+$cfg.llamaServer = Resolve-LaotPath -Path ([string]$cfg.llamaServer) -BaseDir $Root
+$cfg.model       = Resolve-LaotPath -Path ([string]$cfg.model) -BaseDir $Root
+if ($cfg.chatbox) { $cfg.chatbox = Resolve-LaotPath -Path ([string]$cfg.chatbox) -BaseDir $Root }
+if ($cfg.sydney -and $cfg.sydney.enabled) {
+  $cfg.sydney.exe   = Resolve-LaotPath -Path ([string]$cfg.sydney.exe) -BaseDir $Root
+  $cfg.sydney.model = Resolve-LaotPath -Path ([string]$cfg.sydney.model) -BaseDir $Root
+}
+
+Write-Log ('config loaded from {0} ({1}): llamaServer={2} model={3} port={4} pollSeconds={5}' -f `
+  $CfgPath, $cfgRaw.Encoding, $cfg.llamaServer, $cfg.model, $cfg.port, $cfg.pollSeconds)
 
 # --- housekeeping: drop old logs -------------------------------------------------
 try {
@@ -71,6 +120,8 @@ try {
 }
 
 # --- state ----------------------------------------------------------------------
+# Every $script: variable the functions below use lives here, so no function can be
+# called before its state exists (that used to crash the whole cycle).
 $script:State = [ordered]@{
   updated          = ''
   mode             = ''
@@ -80,6 +131,12 @@ $script:State = [ordered]@{
   aiRunning        = $false
   stoppedWallpapers = @()
 }
+$script:PathCache = @{}
+$script:LastAiStartAttempt = [datetime]::MinValue
+$script:LastSydneyStartAttempt = [datetime]::MinValue
+$script:CycleCount = 0
+$script:LastMode = ''
+
 if (Test-Path -LiteralPath $StatePath) {
   try {
     $prev = Get-Content -LiteralPath $StatePath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -95,6 +152,21 @@ function Save-State {
 }
 
 # --- process helpers ------------------------------------------------------------
+# Get-LlamaProcesses / Stop-SydneyServer are port-scoped: the watchdog owns exactly
+# one llama-server per port (8080 = the game model, 8081 = Sydney). Filtering by
+# process name alone would stop the other service as well, which is the opposite of
+# what the README promises ("an AI game stops only the other one").
+function Get-LlamaProcessesByPort {
+  param([Parameter(Mandatory = $true)][string]$Port)
+  $all = @(Get-CimInstance Win32_Process -Filter "Name='llama-server.exe'" -ErrorAction SilentlyContinue)
+  $ids = @(Select-LaotProcessIds -Processes $all -Port $Port)
+  return @($all | Where-Object { $ids -contains [int]$_.ProcessId })
+}
+
+function Get-LlamaProcesses {
+  return @(Get-LlamaProcessesByPort ([string]$cfg.port))
+}
+
 function Get-ProcPath {
   param($Process)
   if (-not $Process) { return $null }
@@ -104,11 +176,6 @@ function Get-ProcPath {
   try { $path = $Process.Path } catch { }
   $script:PathCache[$key] = $path
   return $path
-}
-$script:PathCache = @{}
-
-function Get-LlamaProcesses {
-  return @(Get-Process -Name 'llama-server' -ErrorAction SilentlyContinue)
 }
 
 function Start-ChatboxApp {
@@ -124,17 +191,11 @@ function Start-ChatboxApp {
   }
 }
 
-$script:LastAiStartAttempt = [datetime]::MinValue
-
 function Get-SydneyProcesses {
   $sy = $cfg.sydney
   if (-not $sy -or -not $sy.enabled) { return @() }
-  $needle = '*--port ' + [string]$sy.port + '*'
-  return @(Get-CimInstance Win32_Process -Filter "Name='llama-server.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -like $needle })
+  return @(Get-LlamaProcessesByPort ([string]$sy.port))
 }
-
-$script:LastSydneyStartAttempt = [datetime]::MinValue
 
 function Get-GpuFreeMiB {
   try {
@@ -145,6 +206,8 @@ function Get-GpuFreeMiB {
   return -1
 }
 
+# Probe failure must not look like "plenty of VRAM free": the caller logs a WARN
+# instead of silently dropping the protection the README documents.
 function Stop-SydneyServer {
   $sy = $cfg.sydney
   if (-not $sy -or -not $sy.enabled) { return }
@@ -155,7 +218,8 @@ function Stop-SydneyServer {
   foreach ($p in $procs) {
     try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch { Write-Log "sydney stop failed: $($_.Exception.Message)" 'WARN' }
   }
-  $script:LastSydneyStartAttempt = Get-Date
+  # deliberately no LastSydneyStartAttempt reset: stopping is not a start attempt, and
+  # resetting it here would make "stop then start again" wait a whole cooldown.
 }
 
 function Start-SydneyServer {
@@ -165,13 +229,16 @@ function Start-SydneyServer {
   if (-not (Test-Path -LiteralPath $sy.model)) { Write-Log "sydney model not found: $($sy.model)" 'WARN'; return }
   if ($sy.minFreeMiB) {
     $free = Get-GpuFreeMiB
-    if ($free -ge 0 -and $free -lt [int]$sy.minFreeMiB) {
+    if ($free -lt 0) {
+      Write-Log ('sydney VRAM check unavailable (nvidia-smi missing or unreadable), starting anyway' ) 'WARN'
+    } elseif (-not (Test-LaotVramGate -FreeMiB $free -NeedMiB ([int]$sy.minFreeMiB))) {
       Write-Log ('sydney start deferred: only {0} MiB VRAM free, need {1} MiB' -f $free, [int]$sy.minFreeMiB)
       return
     }
   }
+  $cooldown = Get-LaotSydneyCooldown -Config $cfg
   $waited = ((Get-Date) - $script:LastSydneyStartAttempt).TotalSeconds
-  if ($waited -lt [int]$cfg.aiStartCooldownSeconds) { return }
+  if ($waited -lt $cooldown) { return }
   $script:LastSydneyStartAttempt = Get-Date
   $argList = @(
     '-m', $sy.model,
@@ -202,6 +269,7 @@ function Start-AiStack {
     Write-Log ('start skipped, cooldown {0}s left' -f ([int]$cfg.aiStartCooldownSeconds - $waited))
     return
   }
+  # main model and Sydney have independent cooldowns, so they can come up together
   $script:LastAiStartAttempt = Get-Date
   $argList = @(
     '-m', $cfg.model,
@@ -234,7 +302,6 @@ function Start-AiStack {
     if (Test-AiPort) { Write-Log 'model service is up on port ' + $cfg.port; break }
   }
   if (-not (Test-AiPort)) { Write-Log 'model service did not answer within 120s' 'WARN' }
-  Start-SydneyServer
 }
 
 function Test-AiPort {
@@ -249,12 +316,15 @@ function Test-AiPort {
 
 function Stop-AiStack {
   param([string]$Reason)
+  # port-scoped: Get-LlamaProcesses only returns the process serving $cfg.port, so the
+  # Sydney service on its own port keeps running (README: "an AI game stops only the
+  # other one"). Any llama-server started by hand on another port is left alone too.
   $ps = Get-LlamaProcesses
   if ($ps.Count -eq 0) { return }
-  Write-Log ("stop model service ({0}) - freeing VRAM for the game" -f $Reason)
+  Write-Log ("stop model service on port {0} ({1} process(es)) - {2}" -f $cfg.port, $ps.Count, $Reason)
   if ($DryRun) { return }
   foreach ($p in $ps) {
-    try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch { Write-Log "stop failed: $($_.Exception.Message)" 'WARN' }
+    try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch { Write-Log "stop failed: $($_.Exception.Message)" 'WARN' }
   }
   if ($cfg.stopChatboxDuringGame) {
     foreach ($p in @(Get-Process -Name 'Chatbox' -ErrorAction SilentlyContinue)) {
@@ -265,13 +335,19 @@ function Stop-AiStack {
 
 function Set-AiPriority {
   param([string]$Level)
+  # same port scope: the Sydney process must keep its own priority (--prio -1)
   foreach ($p in Get-LlamaProcesses) {
     try {
-      if ($p.PriorityClass.ToString() -ne $Level) {
-        Write-Log "model service priority -> $Level"
-        if (-not $DryRun) { $p.PriorityClass = $Level }
+      if ($p.PriorityClass.ToString() -eq $Level) { continue }
+      if ($DryRun) {
+        Write-Log ("[dry-run] model service priority would change to $Level")
+        continue
       }
-    } catch { }
+      $p.PriorityClass = $Level
+      Write-Log "model service priority -> $Level"
+    } catch {
+      Write-Log ("model service priority change to {0} failed: {1}" -f $Level, $_.Exception.Message) 'WARN'
+    }
   }
 }
 
@@ -279,7 +355,8 @@ function Stop-Wallpapers {
   $stopped = @()
   foreach ($name in @($cfg.wallpaperProcessNames)) {
     foreach ($p in @(Get-Process -Name $name -ErrorAction SilentlyContinue)) {
-      $path = Get-ProcPath $p
+      $path = $null
+      try { $path = Get-ProcPath $p } catch { Write-Log ("wallpaper path lookup failed (pid {0}): {1}" -f $p.Id, $_.Exception.Message) 'WARN' }
       if ($path) { $stopped += $path }
       Write-Log ("pause wallpaper {0} (pid {1}) {2}" -f $p.ProcessName, $p.Id, $path)
       if ($DryRun) { continue }
@@ -305,9 +382,6 @@ function Restore-Wallpapers {
 }
 
 # --- one decision cycle ---------------------------------------------------------
-$script:CycleCount = 0
-$script:LastMode = ''
-
 function Invoke-Cycle {
   $script:CycleCount++
   $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
@@ -351,7 +425,8 @@ function Invoke-Cycle {
   $fgIsGame = $false
   foreach ($g in $games) { if ([int]$g.ProcessId -eq $fgPid) { $fgIsGame = $true; break } }
 
-  $aiRunning = (@($all | Where-Object { $_.Name -eq 'llama-server.exe' -and $_.CommandLine -and $_.CommandLine -like ('*--port ' + [string]$cfg.port + '*') }).Count -gt 0)
+  # same port anchoring as Get-LlamaProcesses, computed from the snapshot we already have
+  $aiRunning = (@(Select-LaotProcessIds -Processes @($all | Where-Object { $_.Name -eq 'llama-server.exe' }) -Port ([string]$cfg.port)).Count -gt 0)
   $aiShouldRun = $true
   if ($cfg.pauseAiWhenOtherGameRuns -and $otherGames.Count -gt 0) { $aiShouldRun = $false }
   if ($Force) { $aiShouldRun = $true }

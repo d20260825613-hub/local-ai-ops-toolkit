@@ -20,6 +20,51 @@ $SevenZip = 'D:\7-Zip\7z.exe'
 if (-not (Test-Path $SevenZip)) { Write-Log "WARN: 7z not found at $SevenZip" }
 $Proxy = 'https://ghproxy.net/'
 $Mirror = 'https://registry.npmmirror.com/-/binary/'
+$EnvRecord = 'D:\tools\mirror-env.json'
+
+# --- mirror environment (user level) --------------------------------------------
+# README promises "write the mirrors into user environment variables, configure once
+# and every tool uses them". Assigning $env:NAME only affects this process and is lost
+# when the script exits, so the persistent values are written with
+# [Environment]::SetEnvironmentVariable(name, value, 'User') - user scope, no admin,
+# and only entries that differ are touched. Remove them with:
+#   foreach ($n in (Get-Content D:\ai\tools\mirror-env.json | ConvertFrom-Json).names)
+#     { [Environment]::SetEnvironmentVariable($n, $null, 'User') }
+$MirrorEnv = [ordered]@{
+  'PIP_INDEX_URL'             = 'https://pypi.tuna.tsinghua.edu.cn/simple'
+  'PIP_TRUSTED_HOST'          = 'pypi.tuna.tsinghua.edu.cn'
+  'UV_DEFAULT_INDEX'          = 'https://pypi.tuna.tsinghua.edu.cn/simple'
+  'UV_PYTHON_INSTALL_DIR'     = 'D:\Python'
+  'UV_PYTHON_INSTALL_MIRROR'  = 'https://registry.npmmirror.com/-/binary/python-build-standalone'
+  'NPM_CONFIG_REGISTRY'       = 'https://registry.npmmirror.com'
+  'HF_ENDPOINT'               = 'https://hf-mirror.com'
+  'HF_HOME'                   = 'D:\hf-cache'
+  'PLAYWRIGHT_DOWNLOAD_HOST'  = 'https://cdn.npmmirror.com/binaries/playwright'
+  'PLAYWRIGHT_BROWSERS_PATH'  = 'D:\tools\ms-playwright'
+}
+
+function Set-MirrorEnv {
+  $changed = @()
+  foreach ($name in $MirrorEnv.Keys) {
+    $want = [string]$MirrorEnv[$name]
+    $have = [Environment]::GetEnvironmentVariable($name, 'User')
+    if ($have -ne $want) {
+      try {
+        [Environment]::SetEnvironmentVariable($name, $want, 'User')
+        $changed += $name
+        Write-Log ("  env + {0} = {1}" -f $name, $want)
+      } catch {
+        Write-Log ("  env FAILED {0}: {1}" -f $name, $_.Exception.Message)
+      }
+    }
+  }
+  if ($changed.Count -eq 0) { Write-Log '  user mirror environment already complete' }
+  else { Write-Log '  user mirror environment updated (takes effect in new processes)' }
+  try {
+    @{ updated = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); names = @($MirrorEnv.Keys); values = $MirrorEnv } |
+      ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $EnvRecord -Encoding UTF8
+  } catch { }
+}
 
 function Get-Remote($url, $out) {
   if ((Test-Path $out) -and ((Get-Item $out).Length -gt 1024)) { Write-Log "  cached: $(Split-Path $out -Leaf)"; return $true }
@@ -149,8 +194,12 @@ if ($changed) {
   Write-Log '  user PATH updated (takes effect in new processes)'
 } else { Write-Log '  PATH already complete' }
 
-# ---------------------------------------------------------------- 9. manifest
-Write-Log '9) versions'
+# ---------------------------------------------------------------- 9. mirror env (user)
+Write-Log '9) user mirror environment'
+Set-MirrorEnv
+
+# ---------------------------------------------------------------- 10. manifest
+Write-Log '10) versions'
 $manifest = @()
 $manifest += 'git      : ' + (Tool-Version 'D:\Git\cmd\git.exe' '--version')
 $manifest += 'aria2c   : ' + (Tool-Version 'D:\tools\aria2\aria2c.exe' '--version')

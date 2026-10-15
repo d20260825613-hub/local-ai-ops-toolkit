@@ -45,6 +45,7 @@
   "pollSeconds": 10,
   "startupDelaySeconds": 20,
   "aiStartCooldownSeconds": 90,
+  "sydneyStartCooldownSeconds": 30,
 
   "gamePathKeywords": [
     "\\steamapps\\common\\",
