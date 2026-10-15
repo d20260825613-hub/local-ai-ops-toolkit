@@ -1,0 +1,36 @@
+﻿=== run 2026-10-15 13:19:51 ===
+13:19:51 1) uv
+13:19:51    downloading uv (~15MB)
+13:19:52    extracted, uv present: True
+13:19:52 2) portable CPython 3.12
+13:19:55    Downloading cpython-3.12.15-windows-x86_64-none (download) (21.0MiB)
+13:19:58     Downloaded cpython-3.12.15-windows-x86_64-none (download)
+13:19:58    Installed Python 3.12.15 in 4.04s
+13:19:58     + cpython-3.12.15-windows-x86_64-none (python3.12.exe)
+13:19:58    warning: `C:\Users\ADMIN\.local\bin` is not on your PATH. To use installed Python executables, run `$env:PATH = "C:\Users\ADMIN\.local\bin;$env:PATH"` or `uv python update-shell`.
+13:19:59    python = D:\Python\cpython-3.12-windows-x86_64-none\python.exe
+13:19:59 3) python packages (tsinghua pypi)
+13:19:59    Using Python 3.12.15 environment at: D:\Python\cpython-3.12.15-windows-x86_64-none
+13:19:59    error: The interpreter at `D:\Python\cpython-3.12-windows-x86_64-none` is externally managed, and indicates the following:
+13:19:59    System.Management.Automation.RemoteException
+13:19:59      This Python installation is managed by uv and should not be modified.
+13:19:59    System.Management.Automation.RemoteException
+13:19:59    hint: Consider creating a virtual environment, e.g., with `uv venv`
+13:19:59 4) expose bundled binaries
+13:20:00    ffmpeg not found in package
+13:20:00    pandoc not found in package
+13:20:00    yt-dlp console script not found
+13:20:00 5) playwright chromium (npmmirror)
+13:20:00    D:\Python\cpython-3.12-windows-x86_64-none\python.exe: No module named playwright
+13:20:00 6) user PATH
+13:20:00    + D:\tools\bin
+13:20:00    + D:\tools\ffmpeg\bin
+13:20:00    + D:\tools\pandoc
+13:20:00    + D:\Git\cmd
+13:20:00    + D:\Python
+13:20:00    PATH updated
+13:20:00 7) versions
+13:20:00    git    : git version 2.56.0.windows.2
+13:20:00    uv     : uv 0.13.1 (62faed335 2026-10-13 x86_64-pc-windows-msvc)
+13:20:00    python : Python 3.12.15
+13:20:00 done

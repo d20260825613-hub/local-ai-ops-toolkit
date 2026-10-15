@@ -1,0 +1,7 @@
+﻿=== install run 2026-10-15 13:17:06 ===
+13:17:06 1) PortableGit
+13:17:06   download: https://registry.npmmirror.com/-/binary/git-for-windows/v2.56.0.windows.2/PortableGit-2.56.0.2-64-bit.7z.exe
+13:17:09   ok: 57.2 MB
+13:17:22   extracted to D:\Git
+13:17:23 2) aria2
+13:17:23   download: https://ghproxy.net/https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip

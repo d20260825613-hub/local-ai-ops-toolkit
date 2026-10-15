@@ -1,0 +1,94 @@
+{
+  "llamaServer": "D:\\llama.cpp\\llama-server.exe",
+  "model": "D:\\llama.cpp\\models\\qwen2.5-3b-instruct-q4_k_m.gguf",
+  "alias": "qwen2.5-3b-instruct",
+  "host": "127.0.0.1",
+  "port": 8080,
+  "ctx": 8192,
+  "parallel": 1,
+  "ngl": 99,
+  "fa": "on",
+  "extraArgs": ["--sleep-idle-seconds", "120"],
+
+  "sydney": {
+    "enabled": true,
+    "exe": "D:\\llama.cpp\\llama-server.exe",
+    "model": "D:\\models\\sydney\\Qwen3.5-Sydney-9B-Q4_K_M.gguf",
+    "alias": "sydney-9b",
+    "host": "127.0.0.1",
+    "port": 8081,
+    "ctx": 4096,
+    "ngl": "auto",
+    "minFreeMiB": 3000,
+    "extraArgs": [
+      "-fa", "on",
+      "-fit", "on",
+      "-fitt", "350",
+      "-ctk", "q8_0",
+      "-ctv", "q8_0",
+      "--prio", "-1",
+      "--jinja",
+      "--reasoning", "off",
+      "--chat-template-file", "D:\\ai\\sydney\\sydney_template.jinja",
+      "--sleep-idle-seconds", "1800"
+    ]
+  },
+
+  "chatbox": "D:\\chatbox\\Chatbox.exe",
+  "startChatbox": true,
+  "stopChatboxDuringGame": false,
+
+  "pauseAiWhenOtherGameRuns": true,
+  "pauseWallpaperDuringGame": true,
+  "lowerAiPriorityDuringGame": true,
+
+  "pollSeconds": 10,
+  "startupDelaySeconds": 20,
+  "aiStartCooldownSeconds": 90,
+
+  "gamePathKeywords": [
+    "\\steamapps\\common\\",
+    "\\SteamLibrary\\",
+    "\\Epic Games\\",
+    "\\Riot Games\\",
+    "\\Battle.net\\",
+    "\\GOG Galaxy\\Games\\",
+    "\\Origin Games\\",
+    "\\Ubisoft Game Launcher\\games\\"
+  ],
+  "gameExeNames": [],
+
+  "gameExcludeKeywords": [
+    "wallpaper_engine",
+    "BepInEx",
+    "\\Steam\\bin\\",
+    "steamapps\\workshop"
+  ],
+  "gameExcludeNames": [
+    "node",
+    "steam",
+    "steamwebhelper",
+    "GameOverlayUI",
+    "wallpaper64",
+    "wallpaper32",
+    "Lively",
+    "LilithMediaBridge",
+    "UnityCrashHandler64"
+  ],
+
+  "aiGameKeywords": [
+    "The NOexistenceN of Lilith"
+  ],
+  "aiGameExeNames": [
+    "Lilith"
+  ],
+
+  "wallpaperProcessNames": [
+    "wallpaper64",
+    "wallpaper32",
+    "Lively"
+  ],
+
+  "logKeepDays": 14
+}
+

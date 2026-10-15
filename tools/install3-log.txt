@@ -1,0 +1,124 @@
+﻿=== run 2026-10-15 13:20:11 ===
+13:20:11 1) create venv
+13:20:12    Using CPython 3.12.15
+13:20:12    Creating virtual environment at: D:\Python\venv
+13:20:12    Activate with: D:\Python\venv\Scripts\activate
+13:20:12 2) install packages (tsinghua pypi)
+13:20:12    Using Python 3.12.15 environment at: D:\Python\venv
+13:20:14    Resolved 29 packages in 2.46s
+13:20:14    Downloading pypandoc-binary (39.0MiB)
+13:20:15    Downloading playwright (36.9MiB)
+13:20:15    Downloading numpy (12.0MiB)
+13:20:15    Downloading imageio-ffmpeg (29.8MiB)
+13:20:15    Downloading lxml (3.8MiB)
+13:20:15    Downloading pillow (6.9MiB)
+13:20:15    Downloading pandas (9.2MiB)
+13:20:15    Downloading yt-dlp (3.0MiB)
+13:20:17     Downloaded lxml
+13:20:18     Downloaded pillow
+13:20:18     Downloaded yt-dlp
+13:20:19     Downloaded numpy
+13:20:22     Downloaded imageio-ffmpeg
+13:20:22     Downloaded pypandoc-binary
+13:20:22     Downloaded playwright
+13:20:23     Downloaded pandas
+13:20:23    Prepared 29 packages in 8.19s
+13:20:23    warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+13:20:23             If the cache and target directories are on different filesystems, hardlinking may not be supported.
+13:20:23             If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+13:20:34    Installed 29 packages in 11.85s
+13:20:34     + anyio==4.15.1
+13:20:34     + beautifulsoup4==4.15.0
+13:20:34     + certifi==2026.7.22
+13:20:34     + charset-normalizer==3.5.2
+13:20:34     + et-xmlfile==2.0.0
+13:20:34     + greenlet==3.5.6
+13:20:34     + h11==0.16.0
+13:20:34     + httpcore==1.0.9
+13:20:34     + httpx==0.28.1
+13:20:34     + idna==3.20
+13:20:34     + imageio-ffmpeg==0.6.0
+13:20:34     + lxml==6.1.3
+13:20:34     + numpy==2.5.4
+13:20:34     + openpyxl==3.1.5
+13:20:34     + pandas==3.0.6
+13:20:34     + pillow==12.3.0
+13:20:34     + playwright==1.64.0
+13:20:34     + pyee==14.0.0
+13:20:34     + pypandoc-binary==1.17
+13:20:34     + pypdf==6.20.1
+13:20:34     + python-dateutil==2.9.0.post0
+13:20:35     + python-docx==1.2.0
+13:20:35     + requests==2.34.2
+13:20:35     + six==1.17.0
+13:20:35     + soupsieve==3.0.3
+13:20:35     + typing-extensions==4.16.0
+13:20:35     + tzdata==2026.5
+13:20:35     + urllib3==2.8.0
+13:20:35     + yt-dlp==2026.8.19
+13:20:35 3) expose binaries
+13:20:36    ffmpeg -> D:\Python\venv\Lib\site-packages\imageio_ffmpeg\binaries\ffmpeg-win-x86_64-v7.1.exe
+13:20:38    pandoc missing
+13:20:38    yt-dlp -> D:\tools\bin
+13:20:38 4) playwright chromium (npmmirror)
+13:20:39    Downloading Chrome for Testing 156.0.8078.4 (playwright chromium v1248)[2m from https://cdn.npmmirror.com/binaries/playwright/builds/cft/156.0.8078.4/win64/chrome-win64.zip[22m
+13:20:40    |                                                                                |   0% of 197.5 MiB
+13:20:41    |■■■■■■■■                                                                        |  10% of 197.5 MiB
+13:20:42    |■■■■■■■■■■■■■■■■                                                                |  20% of 197.5 MiB
+13:20:43    |■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 197.5 MiB
+13:20:45    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 197.5 MiB
+13:20:48    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 197.5 MiB
+13:20:50    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 197.5 MiB
+13:20:51    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 197.5 MiB
+13:20:52    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 197.5 MiB
+13:20:52    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 197.5 MiB
+13:20:53    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 197.5 MiB
+13:20:58    Chrome for Testing 156.0.8078.4 (playwright chromium v1248) downloaded to D:\tools\ms-playwright\chromium-1248
+13:20:58    Downloading FFmpeg (playwright ffmpeg v1013)[2m from https://cdn.npmmirror.com/binaries/playwright/builds/ffmpeg/1013/ffmpeg-win64.zip[22m
+13:21:04    |                                                                                |   0% of 1.6 MiB
+13:21:04    |■■■■■■■■                                                                        |  10% of 1.6 MiB
+13:21:04    |■■■■■■■■■■■■■■■■                                                                |  20% of 1.6 MiB
+13:21:04    |■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 1.6 MiB
+13:21:04    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 1.6 MiB
+13:21:04    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 1.6 MiB
+13:21:04    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 1.6 MiB
+13:21:04    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 1.6 MiB
+13:21:04    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 1.6 MiB
+13:21:04    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 1.6 MiB
+13:21:04    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 1.6 MiB
+13:21:04    FFmpeg (playwright ffmpeg v1013) downloaded to D:\tools\ms-playwright\ffmpeg-1013
+13:21:04    Downloading Chrome Headless Shell 156.0.8078.4 (playwright chromium-headless-shell v1248)[2m from https://cdn.npmmirror.com/binaries/playwright/builds/cft/156.0.8078.4/win64/chrome-headless-shell-win64.zip[22m
+13:21:10    |                                                                                |   0% of 118.1 MiB
+13:21:10    |■■■■■■■■                                                                        |  10% of 118.1 MiB
+13:21:11    |■■■■■■■■■■■■■■■■                                                                |  20% of 118.1 MiB
+13:21:11    |■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 118.1 MiB
+13:21:12    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 118.1 MiB
+13:21:12    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 118.1 MiB
+13:21:12    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 118.1 MiB
+13:21:13    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 118.1 MiB
+13:21:13    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 118.1 MiB
+13:21:14    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 118.1 MiB
+13:21:14    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 118.1 MiB
+13:21:17    Chrome Headless Shell 156.0.8078.4 (playwright chromium-headless-shell v1248) downloaded to D:\tools\ms-playwright\chromium_headless_shell-1248
+13:21:17    Downloading Winldd (playwright winldd v1007)[2m from https://cdn.npmmirror.com/binaries/playwright/builds/winldd/1007/winldd-win64.zip[22m
+13:21:18    |                                                                                |   2% of 0.1 MiB
+13:21:18    |■■■■■■■■                                                                        |  15% of 0.1 MiB
+13:21:18    |■■■■■■■■■■■■■■■■                                                                |  28% of 0.1 MiB
+13:21:18    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 0.1 MiB
+13:21:18    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  53% of 0.1 MiB
+13:21:18    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  66% of 0.1 MiB
+13:21:18    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  79% of 0.1 MiB
+13:21:18    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  91% of 0.1 MiB
+13:21:18    |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 0.1 MiB
+13:21:18    Winldd (playwright winldd v1007) downloaded to D:\tools\ms-playwright\winldd-1007
+13:21:18 5) PATH
+13:21:18    + D:\Python\venv\Scripts
+13:21:18 6) verify
+13:21:18    python : Python 3.12.15
+13:21:18    Traceback (most recent call last):
+13:21:18      File "<string>", line 1, in <module>
+13:21:18    AttributeError: module 'importlib' has no attribute 'util'
+13:21:18    D:\tools\ffmpeg\bin\ffmpeg.exe : True
+13:21:18    D:\tools\pandoc\pandoc.exe : False
+13:21:18    D:\tools\bin\yt-dlp.exe : True
+13:21:18 done
